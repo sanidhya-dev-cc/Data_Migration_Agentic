@@ -1,0 +1,78 @@
+# Oracle Database Setup for Migration POC
+# Uses gvenzl/oracle-xe:21  (Oracle 21c XE)
+#
+# Key fixes applied:
+#  1. ipc: private  → each container gets its own IPC namespace, eliminating the
+#                     POSIX shared-memory name collision that caused ORA-600 [12803]
+#  2. mem_limit/memswap_limit  → prevents OOM-kill (exit 137)
+#  3. ORACLE_INIT_PARAMS  → shrinks SGA/PGA so both fit in Docker's RAM budget
+#  4. ORACLE_SID left as default "XE"  → gvenzl entrypoint requires this
+#  5. start_period 300s  → Oracle XE needs ~4 min to fully initialise on first boot
+
+services:
+  oracle-source:
+    image: gvenzl/oracle-xe:21
+    container_name: oracle-migration-source
+    hostname: oracle-source
+    ipc: private
+    ports:
+      - "1521:1521"
+    environment:
+      - ORACLE_PASSWORD=MigrationPwd123
+      - APP_USER=migration_user
+      - APP_USER_PASSWORD=MigrationPwd123
+      - ORACLE_INIT_PARAMS=sga_target=800M,pga_aggregate_target=200M,db_recovery_file_dest_size=2G
+    volumes:
+      - oracle-source-data:/opt/oracle/oradata
+      - ./init-scripts/source:/container-entrypoint-initdb.d
+    networks:
+      - migration-network
+    shm_size: 1200mb
+    mem_limit: 2500mb
+    memswap_limit: 4000mb
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+    restart: on-failure
+
+  oracle-target:
+    image: gvenzl/oracle-xe:21
+    container_name: oracle-migration-target
+    hostname: oracle-target
+    ipc: private
+    ports:
+      - "1522:1521"
+    environment:
+      - ORACLE_PASSWORD=MigrationPwd123
+      - APP_USER=migration_user
+      - APP_USER_PASSWORD=MigrationPwd123
+      - ORACLE_INIT_PARAMS=sga_target=800M,pga_aggregate_target=200M,db_recovery_file_dest_size=2G
+    volumes:
+      - oracle-target-data:/opt/oracle/oradata
+      - ./init-scripts/target:/container-entrypoint-initdb.d
+    networks:
+      - migration-network
+    shm_size: 1200mb
+    mem_limit: 2500mb
+    memswap_limit: 4000mb
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+    restart: on-failure
+
+networks:
+  migration-network:
+    driver: bridge
+    name: migration-network
+
+volumes:
+  oracle-source-data:
+    name: oracle-source-data
+  oracle-target-data:
+    name: oracle-target-data

@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: oracle-migration-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
+      - AZURE_OPENAI_DEPLOYMENT_NAME=${AZURE_OPENAI_DEPLOYMENT_NAME}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
+      - BACKEND_PORT=8000
+      - BACKEND_HOST=0.0.0.0
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENABLE_MOCK_MODE=${ENABLE_MOCK_MODE:-false}
+      # Source Oracle DB (container hostname on shared network)
+      - ORACLE_SOURCE_HOST=oracle-source
+      - ORACLE_SOURCE_PORT=1521
+      - ORACLE_SOURCE_SERVICE=XEPDB1
+      - ORACLE_SOURCE_USER=migration_user
+      - ORACLE_SOURCE_PASSWORD=MigrationPwd123
+      # Target Oracle DB (container hostname on shared network)
+      - ORACLE_TARGET_HOST=oracle-target
+      - ORACLE_TARGET_PORT=1521
+      - ORACLE_TARGET_SERVICE=XEPDB1
+      - ORACLE_TARGET_USER=migration_user
+      - ORACLE_TARGET_PASSWORD=MigrationPwd123
+      # Security
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change_in_production}
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRATION_HOURS=24
+    volumes:
+      - ./backend:/app
+      - ./logs:/app/logs
+    networks:
+      - migration-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: oracle-migration-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - migration-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  migration-network:
+    external: true
+    name: migration-network
+
+volumes:
+  logs:
