@@ -1,230 +1,267 @@
 """
 Migration API routes
-Supports both real (ENABLE_MOCK_MODE=false) and mock (ENABLE_MOCK_MODE=true) modes.
+====================
+Wires the LangGraph MigrationOrchestrator into the FastAPI lifecycle.
+
+Flow:
+  POST /api/migration/start
+      → stores migration record
+      → background: MigrationOrchestrator.run_analysis()  [Graph 1]
+      → state written back to migrations dict
+      → status becomes "awaiting_approval"
+
+  POST /api/migration/{id}/approve
+      → background: MigrationOrchestrator.run_execution()  [Graph 2]
+      → state written back to migrations dict
+      → status becomes "completed" or "failed"
+
+All orchestrator calls are run in asyncio.to_thread() so FastAPI's
+event loop is never blocked.
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from typing import Dict
-import structlog
-from datetime import datetime, timezone
-import uuid
+from __future__ import annotations
+
 import asyncio
 import os
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+import structlog
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from models.migration import (
+    ApprovalRequest,
+    DependencyInfo,
+    MigrationPlan,
+    MigrationProgress,
     MigrationRequest,
     MigrationResponse,
     MigrationStatus,
-    ApprovalRequest,
-    MigrationProgress,
+    MigrationStep,
 )
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
 
-# In-memory store (sufficient for POC)
-migrations: Dict[str, Dict] = {}
-
-MOCK_MODE = os.getenv("ENABLE_MOCK_MODE", "false").lower() == "true"
+# ── In-memory store (sufficient for POC) ─────────────────────────────────────
+# Structure per entry:
+#   {
+#     "migration_id": str,
+#     "request":      dict,        # MigrationRequest.dict()
+#     "status":       str,         # mirrors MigrationStatus values
+#     "agent_state":  dict | None, # full MigrationState from orchestrator
+#     "created_at":   str,
+#   }
+migrations: Dict[str, Dict[str, Any]] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Helpers
+# Small helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _set_status(migration_id: str, status: MigrationStatus, pct: float, msg: str):
-    """Thread-safe-enough update for the in-memory store."""
+def _progress_from_state(migration_id: str, agent_state: Optional[Dict]) -> MigrationProgress:
+    """Convert orchestrator MigrationState → MigrationProgress Pydantic model."""
+    if not agent_state:
+        return MigrationProgress(
+            migration_id=migration_id,
+            status=MigrationStatus.ANALYZING,
+            current_step=None,
+            current_table=None,
+            tables_completed=0,
+            tables_total=0,
+            progress_percentage=0.0,
+            started_at=None,
+            completed_at=None,
+            agent_logs=[],
+            error_message=None,
+        )
+
+    raw_status = agent_state.get("status", "analyzing")
+
+    # Map orchestrator status strings → MigrationStatus enum
+    _status_map = {
+        "analyzing":          MigrationStatus.ANALYZING,
+        "planning":           MigrationStatus.PLANNING,
+        "awaiting_approval":  MigrationStatus.AWAITING_APPROVAL,
+        "approved":           MigrationStatus.APPROVED,
+        "executing":          MigrationStatus.EXECUTING,
+        "validating":         MigrationStatus.VALIDATING,
+        "validating_failed":  MigrationStatus.VALIDATING,
+        "completed":          MigrationStatus.COMPLETED,
+        "failed":             MigrationStatus.FAILED,
+        "cancelled":          MigrationStatus.CANCELLED,
+    }
+    status = _status_map.get(raw_status, MigrationStatus.ANALYZING)
+
+    # Progress percentage by phase
+    _pct_map = {
+        "analyzing":         10.0,
+        "planning":          30.0,
+        "awaiting_approval": 50.0,
+        "approved":          55.0,
+        "executing":         65.0,
+        "validating":        88.0,
+        "validating_failed": 88.0,
+        "completed":        100.0,
+        "failed":            60.0,
+        "cancelled":         50.0,
+    }
+    pct = _pct_map.get(raw_status, 0.0)
+
+    # Count tables completed from execution result
+    per_table = agent_state.get("execution_result", {}).get("per_table", {})
+    tables_completed = sum(1 for r in per_table.values() if r.get("status") == "success")
+    tables_total = len(agent_state.get("request", {}).get("tables", []))
+
+    # Determine current_table (last "executing" log entry mentioning a table)
+    current_table = None
+    for log in reversed(agent_state.get("agent_logs", [])):
+        reasoning = log.get("reasoning", "")
+        if "Starting migration" in reasoning or "rows inserted" in reasoning:
+            # Extract table name from messages like "[CUSTOMER] Starting migration..."
+            import re
+            m = re.search(r"\[([A-Z_]+)\]", reasoning)
+            if m:
+                current_table = m.group(1)
+                break
+
+    return MigrationProgress(
+        migration_id=migration_id,
+        status=status,
+        current_step=MigrationStep.STEP_1_NON_CDB_TO_PDB,
+        current_table=current_table,
+        tables_completed=tables_completed,
+        tables_total=tables_total,
+        progress_percentage=pct,
+        started_at=migrations.get(migration_id, {}).get("created_at"),
+        completed_at=(
+            _utcnow()
+            if raw_status in ("completed", "failed", "cancelled")
+            else None
+        ),
+        agent_logs=agent_state.get("agent_logs", []),
+        error_message=agent_state.get("error") or None,
+    )
+
+
+def _plan_from_state(migration_id: str, agent_state: Optional[Dict]) -> Optional[MigrationPlan]:
+    """Extract MigrationPlan from agent state if available."""
+    if not agent_state:
+        return None
+    plan_raw = agent_state.get("migration_plan")
+    if not plan_raw or not plan_raw.get("plan_id"):
+        return None
+    try:
+        deps = [
+            DependencyInfo(**d)
+            for d in plan_raw.get("dependencies", [])
+            if isinstance(d, dict)
+               and "table_name" in d
+               and "depends_on" in d
+               and isinstance(d["depends_on"], list)
+        ]
+        return MigrationPlan(
+            plan_id=plan_raw["plan_id"],
+            migration_id=migration_id,
+            step=MigrationStep.STEP_1_NON_CDB_TO_PDB,
+            execution_order=plan_raw.get("execution_order", []),
+            dependencies=deps,
+            estimated_duration_minutes=plan_raw.get("estimated_duration_minutes", 5),
+            risk_assessment=plan_raw.get("risk_assessment", ""),
+            pre_checks=plan_raw.get("pre_checks", []),
+            post_checks=plan_raw.get("post_checks", []),
+            rollback_strategy=plan_raw.get("rollback_strategy", ""),
+            ai_reasoning=plan_raw.get("ai_reasoning", ""),
+            requires_approval=plan_raw.get("requires_approval", True),
+        )
+    except Exception as e:
+        logger.warning(f"Could not parse plan from state: {e}")
+        return None
+
+
+def _sync_status(migration_id: str, agent_state: Dict) -> None:
+    """Write orchestrator state back into the migrations dict."""
     m = migrations.get(migration_id)
     if not m:
         return
-    m["status"] = status.value
-    m["progress"]["status"] = status.value
-    m["progress"]["progress_percentage"] = pct
-    m["progress"]["agent_logs"].append(
-        {
-            "timestamp": _utcnow(),
-            "agent_name": "Migration Orchestrator",
-            "action": status.value,
-            "reasoning": msg,
-            "metadata": {},
-        }
-    )
-    if status in (MigrationStatus.COMPLETED, MigrationStatus.FAILED):
-        m["progress"]["completed_at"] = _utcnow()
-
-
-def _build_plan(migration_id: str, request: MigrationRequest) -> Dict:
-    return {
-        "plan_id": f"PLAN-{migration_id[:8]}",
-        "migration_id": migration_id,
-        "step": "step_1_non_cdb_to_pdb",
-        "execution_order": [t.table_name for t in request.tables],
-        "dependencies": [],
-        "estimated_duration_minutes": 5,
-        "risk_assessment": (
-            "Low risk – direct table copy via oracledb thin driver. "
-            "FK constraints disabled during load and re-enabled after."
-        ),
-        "pre_checks": [
-            "Source DB reachable and migration_user has SELECT privilege",
-            "Target DB reachable and migration_user has CREATE TABLE privilege",
-            "Sufficient tablespace on target",
-        ],
-        "post_checks": [
-            "Row counts match source vs target per table",
-            "FK constraints re-enabled successfully",
-            "Indexes recreated on target",
-        ],
-        "rollback_strategy": "DROP each migrated table on target; source is read-only.",
-        "ai_reasoning": (
-            "Tables are migrated in dependency order: parents before children.\n"
-            "FK constraints are disabled on the target during bulk load to maximise\n"
-            "throughput, then validated and re-enabled afterwards.\n"
-            "A row-count check per table confirms integrity."
-        ),
-        "requires_approval": True,
-        "created_at": _utcnow(),
-    }
+    m["agent_state"] = agent_state
+    m["status"] = agent_state.get("status", "analyzing")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Background workers
+# Background tasks
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _run_analysis_and_plan(migration_id: str, request: MigrationRequest):
-    """Phase 1: analyse → plan → await approval."""
-    await asyncio.sleep(1)
-    _set_status(migration_id, MigrationStatus.ANALYZING, 10,
-                "Connecting to source database and reading schema metadata...")
+async def _bg_run_analysis(migration_id: str, request_dict: Dict) -> None:
+    """Background: run Graph 1 via orchestrator and sync state."""
+    from agents import MigrationOrchestrator
 
-    if not MOCK_MODE:
-        # Real connection test
-        await asyncio.to_thread(_real_test_connections, migration_id)
-        if migrations[migration_id]["status"] == MigrationStatus.FAILED.value:
-            return
-
-    await asyncio.sleep(2)
-    _set_status(migration_id, MigrationStatus.PLANNING, 30,
-                "Schema discovered. Analysing table dependencies and building migration plan...")
-
-    await asyncio.sleep(1)
-    plan = _build_plan(migration_id, request)
-    migrations[migration_id]["plan"] = plan
-
-    _set_status(migration_id, MigrationStatus.AWAITING_APPROVAL, 50,
-                "Migration plan ready. Awaiting human approval before execution.")
-
-
-def _real_test_connections(migration_id: str):
-    """Blocking: test source + target connectivity."""
-    from db import MigrationEngine
-    engine = MigrationEngine()
-    conn_result = engine.test_connections()
-    if not conn_result["source"]["connected"]:
-        err = conn_result["source"].get("error", "unknown")
-        _set_status(migration_id, MigrationStatus.FAILED, 0,
-                    f"Cannot connect to source DB: {err}")
-        return
-    if not conn_result["target"]["connected"]:
-        err = conn_result["target"].get("error", "unknown")
-        _set_status(migration_id, MigrationStatus.FAILED, 0,
-                    f"Cannot connect to target DB: {err}")
-        return
-    logger.info(f"[{migration_id}] Both DB connections verified.")
-
-
-async def _run_execution(migration_id: str, table_names: list):
-    """Phase 2 (post-approval): execute real or mock migration."""
-    _set_status(migration_id, MigrationStatus.EXECUTING, 60,
-                f"Starting data migration for {len(table_names)} tables...")
-
-    if MOCK_MODE:
-        await _mock_execute(migration_id, table_names)
-    else:
-        await _real_execute(migration_id, table_names)
-
-
-async def _real_execute(migration_id: str, table_names: list):
-    """Run MigrationEngine in a thread so the event loop stays free."""
-    from db import MigrationEngine
-
-    progress_msgs: list = []
-
-    def _cb(msg: str):
-        progress_msgs.append(msg)
+    logger.info(f"[{migration_id}] Background analysis started")
+    try:
+        orchestrator = MigrationOrchestrator()
+        result_state = await asyncio.to_thread(
+            orchestrator.run_analysis, migration_id, request_dict
+        )
+        _sync_status(migration_id, result_state)
+        logger.info(f"[{migration_id}] Background analysis done — status: {result_state['status']}")
+    except Exception as e:
+        logger.error(f"[{migration_id}] Background analysis exception: {e}")
         m = migrations.get(migration_id)
         if m:
-            m["progress"]["agent_logs"].append(
-                {
-                    "timestamp": _utcnow(),
-                    "agent_name": "Migration Engine",
-                    "action": "executing",
-                    "reasoning": msg,
-                    "metadata": {},
-                }
-            )
+            m["status"] = "failed"
+            if m.get("agent_state") is None:
+                m["agent_state"] = {}
+            m["agent_state"]["status"] = "failed"
+            m["agent_state"]["error"] = str(e)
+            m["agent_state"].setdefault("agent_logs", []).append({
+                "timestamp": _utcnow(),
+                "agent_name": "Orchestrator",
+                "action": "analysis_exception",
+                "reasoning": str(e),
+                "metadata": {},
+            })
 
-    def _do_migration():
-        engine = MigrationEngine()
-        return engine.migrate_tables(table_names, progress_callback=_cb)
 
+async def _bg_run_execution(migration_id: str) -> None:
+    """Background: run Graph 2 via orchestrator and sync state."""
+    from agents import MigrationOrchestrator
+
+    m = migrations.get(migration_id)
+    if not m:
+        logger.error(f"[{migration_id}] Cannot run execution — migration not found")
+        return
+
+    saved_state = m.get("agent_state")
+    if not saved_state:
+        logger.error(f"[{migration_id}] Cannot run execution — no saved agent state")
+        return
+
+    logger.info(f"[{migration_id}] Background execution started")
     try:
-        result = await asyncio.to_thread(_do_migration)
-        migrations[migration_id]["execution_result"] = result
-
-        if result["overall_status"] in ("success", "partial"):
-            _set_status(migration_id, MigrationStatus.VALIDATING, 85,
-                        f"Execution done ({result['tables_succeeded']}/{result['tables_attempted']} tables OK). Validating...")
-            await asyncio.sleep(1)
-            _finalize(migration_id, result)
-        else:
-            err = result.get("error", "Migration engine reported failure.")
-            _set_status(migration_id, MigrationStatus.FAILED, 60, f"Execution failed: {err}")
-
+        orchestrator = MigrationOrchestrator()
+        result_state = await asyncio.to_thread(
+            orchestrator.run_execution, saved_state
+        )
+        _sync_status(migration_id, result_state)
+        logger.info(f"[{migration_id}] Background execution done — status: {result_state['status']}")
     except Exception as e:
-        logger.error(f"[{migration_id}] Execution exception: {e}")
-        _set_status(migration_id, MigrationStatus.FAILED, 60, f"Exception during execution: {e}")
-
-
-async def _mock_execute(migration_id: str, table_names: list):
-    """Simulated execution for when ENABLE_MOCK_MODE=true."""
-    total = len(table_names)
-    for i, table in enumerate(table_names, 1):
-        await asyncio.sleep(1)
-        pct = 60 + (25 * i / total)
-        _set_status(migration_id, MigrationStatus.EXECUTING, pct,
-                    f"[Mock] Migrating table {table} ({i}/{total})...")
-
-    mock_result = {
-        "overall_status": "success",
-        "tables_attempted": total,
-        "tables_succeeded": total,
-        "tables_failed": 0,
-        "per_table": {t: {"status": "success", "rows_inserted": 1000} for t in table_names},
-    }
-    migrations[migration_id]["execution_result"] = mock_result
-    _set_status(migration_id, MigrationStatus.VALIDATING, 88,
-                "Mock execution complete. Validating row counts...")
-    await asyncio.sleep(1)
-    _finalize(migration_id, mock_result)
-
-
-def _finalize(migration_id: str, result: Dict):
-    """Set final status based on engine result."""
-    failed_tables = [
-        t for t, r in result.get("per_table", {}).items()
-        if r.get("status") != "success"
-    ]
-    if not failed_tables:
-        _set_status(migration_id, MigrationStatus.COMPLETED, 100,
-                    f"All {result['tables_succeeded']} tables migrated and validated successfully.")
-    else:
-        _set_status(migration_id, MigrationStatus.FAILED, 95,
-                    f"Migration finished with errors on: {', '.join(failed_tables)}.")
+        logger.error(f"[{migration_id}] Background execution exception: {e}")
+        if m.get("agent_state"):
+            m["agent_state"]["status"] = "failed"
+            m["agent_state"]["error"] = str(e)
+            m["agent_state"].setdefault("agent_logs", []).append({
+                "timestamp": _utcnow(),
+                "agent_name": "Orchestrator",
+                "action": "execution_exception",
+                "reasoning": str(e),
+                "metadata": {},
+            })
+        m["status"] = "failed"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -232,79 +269,72 @@ def _finalize(migration_id: str, result: Dict):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.post("/start", response_model=MigrationResponse)
-async def start_migration(request: MigrationRequest, background_tasks: BackgroundTasks):
-    """Start a new migration – returns immediately, runs analysis in background."""
+async def start_migration(
+    request: MigrationRequest,
+    background_tasks: BackgroundTasks,
+) -> MigrationResponse:
+    """
+    Start a new migration.
+    Returns immediately; Graph 1 (analysis) runs in the background.
+    Poll /status to track progress.
+    """
     migration_id = str(uuid.uuid4())
-    logger.info(f"Starting migration: {migration_id} (mock={MOCK_MODE})")
+    logger.info(f"Starting migration: {migration_id}")
 
+    # Seed the migrations store
     migrations[migration_id] = {
         "migration_id": migration_id,
         "request": request.dict(),
-        "status": MigrationStatus.ANALYZING.value,
+        "status": "analyzing",
+        "agent_state": None,
         "created_at": _utcnow(),
-        "plan": None,
-        "execution_result": None,
-        "progress": {
-            "migration_id": migration_id,
-            "status": MigrationStatus.ANALYZING.value,
-            "current_step": None,
-            "current_table": None,
-            "tables_completed": 0,
-            "tables_total": len(request.tables),
-            "progress_percentage": 0,
-            "started_at": _utcnow(),
-            "completed_at": None,
-            "agent_logs": [],
-            "error_message": None,
-        },
     }
 
-    # Kick off analysis + planning in the background
-    background_tasks.add_task(_run_analysis_and_plan, migration_id, request)
+    # Kick off Graph 1 in the background
+    background_tasks.add_task(_bg_run_analysis, migration_id, request.dict())
 
+    initial_progress = _progress_from_state(migration_id, None)
     return MigrationResponse(
         migration_id=migration_id,
         status=MigrationStatus.ANALYZING,
-        message="Migration started. Analysis running in background.",
-        progress=MigrationProgress(**migrations[migration_id]["progress"]),
+        message="Migration started. AI agents are analysing your schema...",
+        progress=initial_progress,
     )
 
 
 @router.get("/{migration_id}/status", response_model=MigrationResponse)
-async def get_migration_status(migration_id: str):
-    """Poll migration status."""
+async def get_migration_status(migration_id: str) -> MigrationResponse:
+    """Poll migration status. Frontend calls this every 3 s."""
     if migration_id not in migrations:
         raise HTTPException(status_code=404, detail="Migration not found")
 
     m = migrations[migration_id]
-    plan_raw = m.get("plan")
-    plan_obj = None
-    if plan_raw:
-        from models.migration import MigrationPlan, DependencyInfo
-        try:
-            plan_obj = MigrationPlan(
-                plan_id=plan_raw["plan_id"],
-                migration_id=plan_raw["migration_id"],
-                step=plan_raw["step"],
-                execution_order=plan_raw["execution_order"],
-                dependencies=[DependencyInfo(**d) for d in plan_raw.get("dependencies", [])],
-                estimated_duration_minutes=plan_raw["estimated_duration_minutes"],
-                risk_assessment=plan_raw["risk_assessment"],
-                pre_checks=plan_raw["pre_checks"],
-                post_checks=plan_raw["post_checks"],
-                rollback_strategy=plan_raw["rollback_strategy"],
-                ai_reasoning=plan_raw["ai_reasoning"],
-                requires_approval=plan_raw["requires_approval"],
-            )
-        except Exception:
-            pass
+    agent_state = m.get("agent_state")
+
+    progress = _progress_from_state(migration_id, agent_state)
+    plan     = _plan_from_state(migration_id, agent_state)
+
+    raw_status = m["status"]
+    _status_map = {
+        "analyzing":         MigrationStatus.ANALYZING,
+        "planning":          MigrationStatus.PLANNING,
+        "awaiting_approval": MigrationStatus.AWAITING_APPROVAL,
+        "approved":          MigrationStatus.APPROVED,
+        "executing":         MigrationStatus.EXECUTING,
+        "validating":        MigrationStatus.VALIDATING,
+        "validating_failed": MigrationStatus.VALIDATING,
+        "completed":         MigrationStatus.COMPLETED,
+        "failed":            MigrationStatus.FAILED,
+        "cancelled":         MigrationStatus.CANCELLED,
+    }
+    status_enum = _status_map.get(raw_status, MigrationStatus.ANALYZING)
 
     return MigrationResponse(
         migration_id=migration_id,
-        status=MigrationStatus(m["status"]),
-        message=f"Migration status: {m['status']}",
-        progress=MigrationProgress(**m["progress"]),
-        plan=plan_obj,
+        status=status_enum,
+        message=f"Migration status: {raw_status}",
+        progress=progress,
+        plan=plan,
     )
 
 
@@ -313,58 +343,87 @@ async def approve_migration(
     migration_id: str,
     approval: ApprovalRequest,
     background_tasks: BackgroundTasks,
-):
-    """Approve or reject a migration that is awaiting approval."""
+) -> MigrationResponse:
+    """
+    Approve or reject a migration that is awaiting approval.
+    On approval, Graph 2 (execution) runs in the background.
+    """
     if migration_id not in migrations:
         raise HTTPException(status_code=404, detail="Migration not found")
 
     m = migrations[migration_id]
 
-    if m["status"] != MigrationStatus.AWAITING_APPROVAL.value:
+    if m["status"] != "awaiting_approval":
         raise HTTPException(
             status_code=400,
             detail=f"Migration is not awaiting approval (current: {m['status']})",
         )
 
+    # ── Rejected ──────────────────────────────────────────────────────────────
     if not approval.approved:
-        m["status"] = MigrationStatus.CANCELLED.value
-        m["progress"]["status"] = MigrationStatus.CANCELLED.value
-        m["progress"]["error_message"] = f"Cancelled by user: {approval.comments}"
+        m["status"] = "cancelled"
+        if m.get("agent_state"):
+            m["agent_state"]["status"] = "cancelled"
+            m["agent_state"].setdefault("agent_logs", []).append({
+                "timestamp": _utcnow(),
+                "agent_name": "Human Approver",
+                "action": "reject_migration",
+                "reasoning": f"Cancelled by {approval.approver}: {approval.comments or 'No reason given'}",
+                "metadata": {},
+            })
+        progress = _progress_from_state(migration_id, m.get("agent_state"))
         return MigrationResponse(
             migration_id=migration_id,
             status=MigrationStatus.CANCELLED,
             message="Migration cancelled by approver.",
-            progress=MigrationProgress(**m["progress"]),
+            progress=progress,
         )
 
-    # Approved – kick off real execution
+    # ── Approved ──────────────────────────────────────────────────────────────
     logger.info(f"Migration {migration_id} approved by {approval.approver}")
-    table_names = [t["table_name"] for t in m["request"].get("tables", [])]
-    background_tasks.add_task(_run_execution, migration_id, table_names)
+    m["status"] = "executing"
+    if m.get("agent_state"):
+        m["agent_state"].setdefault("agent_logs", []).append({
+            "timestamp": _utcnow(),
+            "agent_name": "Human Approver",
+            "action": "approve_migration",
+            "reasoning": (
+                f"Migration approved by {approval.approver}. "
+                f"{('Comment: ' + approval.comments) if approval.comments else ''}"
+            ),
+            "metadata": {"approver": approval.approver},
+        })
 
+    # Kick off Graph 2 in the background
+    background_tasks.add_task(_bg_run_execution, migration_id)
+
+    progress = _progress_from_state(migration_id, m.get("agent_state"))
     return MigrationResponse(
         migration_id=migration_id,
         status=MigrationStatus.EXECUTING,
-        message="Migration approved. Execution running in background.",
-        progress=MigrationProgress(**m["progress"]),
+        message="Migration approved. Execution agents running...",
+        progress=progress,
     )
 
 
 @router.post("/{migration_id}/cancel")
 async def cancel_migration(migration_id: str):
-    """Cancel a pending/planning/awaiting migration."""
+    """Cancel a migration that is not yet executing."""
     if migration_id not in migrations:
         raise HTTPException(status_code=404, detail="Migration not found")
 
     m = migrations[migration_id]
-    terminal = {MigrationStatus.COMPLETED.value, MigrationStatus.FAILED.value,
-                MigrationStatus.CANCELLED.value}
+    terminal = {"completed", "failed", "cancelled"}
     if m["status"] in terminal:
-        raise HTTPException(status_code=400, detail="Cannot cancel a terminal migration.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel a migration in terminal state: {m['status']}",
+        )
 
-    m["status"] = MigrationStatus.CANCELLED.value
-    m["progress"]["status"] = MigrationStatus.CANCELLED.value
-    logger.info(f"Migration {migration_id} cancelled via API.")
+    m["status"] = "cancelled"
+    if m.get("agent_state"):
+        m["agent_state"]["status"] = "cancelled"
+    logger.info(f"Migration {migration_id} cancelled via API")
     return {"message": "Migration cancelled."}
 
 
@@ -375,8 +434,24 @@ async def get_migration_result(migration_id: str):
         raise HTTPException(status_code=404, detail="Migration not found")
 
     m = migrations[migration_id]
+    agent_state = m.get("agent_state") or {}
+
     return {
         "migration_id": migration_id,
         "status": m["status"],
-        "execution_result": m.get("execution_result"),
+        "execution_result": agent_state.get("execution_result"),
+        "validation_result": agent_state.get("validation_result"),
+    }
+
+
+@router.get("/{migration_id}/logs")
+async def get_agent_logs(migration_id: str):
+    """Return all agent reasoning logs for a migration."""
+    if migration_id not in migrations:
+        raise HTTPException(status_code=404, detail="Migration not found")
+
+    agent_state = migrations[migration_id].get("agent_state") or {}
+    return {
+        "migration_id": migration_id,
+        "logs": agent_state.get("agent_logs", []),
     }
