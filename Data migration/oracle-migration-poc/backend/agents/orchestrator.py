@@ -12,8 +12,7 @@ Two-graph design so the human-approval gate works with the REST API:
       migration_executor → validator → reconciliation → complete / error
       Picks up saved state, runs MigrationEngine, validates, returns.
 
-LLM provider : OpenRouter (ChatOpenAI with custom base_url).
-SSL note      : Corporate proxy requires verify=False on the httpx client.
+LLM provider : Anthropic Claude (direct API via langchain-anthropic).
 Data source   : Real Oracle source/target containers via OracleClient +
                 MigrationEngine — no mock data.
 """
@@ -25,11 +24,10 @@ import traceback
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TypedDict
 
-import httpx
 import structlog
 from dotenv import load_dotenv
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
 load_dotenv()
@@ -37,21 +35,15 @@ load_dotenv()
 logger = structlog.get_logger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LLM initialisation  (OpenRouter, SSL-verify disabled for corporate proxy)
+# LLM initialisation  (Anthropic Claude — direct API)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_llm() -> ChatOpenAI:
-    return ChatOpenAI(
-        base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-        api_key=os.getenv("OPENROUTER_API_KEY", ""),
-        model=os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
+def _build_llm() -> ChatAnthropic:
+    return ChatAnthropic(
+        api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+        model=os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5"),
         temperature=0.3,
         max_tokens=1500,
-        default_headers={
-            "HTTP-Referer": "https://oracle-migration-poc",
-            "X-OpenRouter-Title": "Oracle Migration POC",
-        },
-        http_client=httpx.Client(verify=False),   # corporate proxy SSL bypass
     )
 
 
@@ -90,7 +82,7 @@ def _log_entry(agent: str, action: str, reasoning: str, meta: Dict = None) -> Di
     }
 
 
-def _llm_call(llm: ChatOpenAI, system: str, user: str, fallback: str) -> str:
+def _llm_call(llm: ChatAnthropic, system: str, user: str, fallback: str) -> str:
     """Call LLM and return content; return fallback string on any error."""
     try:
         response = llm.invoke([
