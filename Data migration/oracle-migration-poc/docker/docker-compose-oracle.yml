@@ -16,7 +16,7 @@ services:
     hostname: oracle-source
     ipc: private
     ports:
-      - "1523:1521"
+      - "1521:1521"
     environment:
       - ORACLE_PASSWORD=MigrationPwd123
       - APP_USER=migration_user

@@ -27,6 +27,7 @@ const MigrationDashboard: React.FC<MigrationDashboardProps> = ({
 }) => {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [migrationStarted, setMigrationStarted] = useState(false);
   const [migrationData, setMigrationData] = useState<MigrationResponse | null>(null);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
@@ -48,10 +49,12 @@ const MigrationDashboard: React.FC<MigrationDashboardProps> = ({
   const loadTables = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const schema = await schemaApi.getSourceSchema(databases.source!.db_id);
       setTables(schema.tables);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load tables:', error);
+      setLoadError(error?.response?.data?.detail || error?.message || 'Unknown error');
     } finally {
       setLoading(false);
     }
@@ -208,6 +211,13 @@ const MigrationDashboard: React.FC<MigrationDashboardProps> = ({
               <div className="loading-container">
                 <div className="spinner"></div>
                 <p>Loading schema information...</p>
+              </div>
+            ) : loadError ? (
+              <div className="loading-container">
+                <p>Failed to load source tables: {loadError}</p>
+                <button className="btn btn-secondary" onClick={loadTables}>
+                  Retry
+                </button>
               </div>
             ) : (
               <TableSelector tables={tables} onTablesChange={setTables} />

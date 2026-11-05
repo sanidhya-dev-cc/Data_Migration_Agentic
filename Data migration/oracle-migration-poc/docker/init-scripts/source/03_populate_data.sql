@@ -2,6 +2,11 @@
 -- Kept at 1,000 rows per main table so init finishes quickly in XE
 -- Scale up by changing the loop bounds if you have more RAM/disk
 
+-- Switch from SYS/CDB$ROOT (how gvenzl runs init scripts) to the app schema
+WHENEVER SQLERROR EXIT FAILURE
+CONNECT migration_user/MigrationPwd123@//localhost:1521/XEPDB1
+WHENEVER SQLERROR CONTINUE
+
 SET SERVEROUTPUT ON SIZE UNLIMITED
 
 -- Disable FK constraints for fast bulk load

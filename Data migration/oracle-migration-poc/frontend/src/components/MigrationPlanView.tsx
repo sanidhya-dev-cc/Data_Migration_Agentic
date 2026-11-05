@@ -36,7 +36,7 @@ const MigrationPlanView: React.FC<MigrationPlanViewProps> = ({
         <div>
           <h2 className="card-title">AI-Generated Migration Plan</h2>
           <p className="card-subtitle">
-            Review the proposed two-step migration strategy
+            Review the AI-generated migration plan before execution
           </p>
         </div>
         {isAwaitingApproval && (
@@ -59,7 +59,7 @@ const MigrationPlanView: React.FC<MigrationPlanViewProps> = ({
             <div className="step-card step1">
               <div className="step-header">
                 <div className="step-badge">Step 1</div>
-                <h3>Non-CDB to 19c PDB</h3>
+                <h3>Schema Discovery & Planning</h3>
               </div>
               <div className="step-details">
                 <div className="detail-row">
@@ -92,7 +92,7 @@ const MigrationPlanView: React.FC<MigrationPlanViewProps> = ({
             <div className="step-card step2">
               <div className="step-header">
                 <div className="step-badge">Step 2</div>
-                <h3>19c PDB to 23c PDB</h3>
+                <h3>Data Migration & Validation</h3>
               </div>
               <div className="step-details">
                 <div className="detail-row">

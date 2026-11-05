@@ -22,7 +22,7 @@ async def get_validation_result(migration_id: str) -> ValidationResult:
         validation = ValidationResult(
             validation_id=f"VAL-{migration_id[:8]}",
             migration_id=migration_id,
-            step=MigrationStep.STEP_2_PDB_19C_TO_23C,
+            step=MigrationStep.STEP_2_VALIDATE,
             source_row_count=1650000,
             target_row_count=1650000,
             row_count_match=True,

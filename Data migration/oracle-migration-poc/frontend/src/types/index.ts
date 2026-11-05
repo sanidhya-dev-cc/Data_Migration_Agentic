@@ -13,14 +13,13 @@ export enum MigrationStatus {
 }
 
 export enum MigrationStep {
-  STEP_1_NON_CDB_TO_PDB = 'step_1_non_cdb_to_pdb',
-  STEP_2_PDB_19C_TO_23C = 'step_2_pdb_19c_to_23c'
+  STEP_1_DIRECT_MIGRATION = 'step_1_direct_migration',
+  STEP_2_VALIDATE = 'step_2_validate'
 }
 
 export enum DatabaseType {
-  ORACLE_19C_STANDALONE = 'oracle_19c_standalone',
-  ORACLE_19C_CDB_PDB = 'oracle_19c_cdb_pdb',
-  ORACLE_23C_CDB_PDB = 'oracle_23c_cdb_pdb'
+  ORACLE_XE_21C_SOURCE = 'oracle_xe_21c_source',
+  ORACLE_XE_21C_TARGET = 'oracle_xe_21c_target'
 }
 
 export interface DatabaseConfig {

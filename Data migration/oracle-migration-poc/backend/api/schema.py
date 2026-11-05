@@ -64,7 +64,7 @@ async def get_source_schema():
             cfg = source_config()
             db_cfg = DatabaseConfig(
                 db_id="source_oracle",
-                db_type="oracle_19c_standalone",
+                db_type="oracle_xe_21c_source",
                 host=cfg.host,
                 port=cfg.port,
                 service_name=cfg.service,
@@ -103,7 +103,7 @@ async def get_target_schema():
         cfg = target_config()
         db_cfg = DatabaseConfig(
             db_id="target_oracle",
-            db_type="oracle_23c_cdb_pdb",
+            db_type="oracle_xe_21c_target",
             host=cfg.host,
             port=cfg.port,
             service_name=cfg.service,

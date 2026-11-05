@@ -1,5 +1,10 @@
 -- Create sample schema for migration POC
--- Runs as migration_user in XEPDB1 (gvenzl runs APP_USER scripts automatically)
+-- gvenzl runs init .sql files as "/ as sysdba" in CDB$ROOT, so we must switch to
+-- migration_user in XEPDB1 first. Without this, the drop loop below runs against
+-- SYS's own tables and corrupts the data dictionary (ORA-00600).
+WHENEVER SQLERROR EXIT FAILURE
+CONNECT migration_user/MigrationPwd123@//localhost:1521/XEPDB1
+WHENEVER SQLERROR CONTINUE
 
 -- Drop tables if they exist (idempotent re-runs)
 -- Each statement wrapped in its own exception handler so one failure
@@ -130,7 +135,6 @@ CREATE SEQUENCE SEQ_PAYMENT_ID    START WITH 1 INCREMENT BY 1 NOCACHE NOORDER;
 -- ----------------------------------------------------------------
 -- Indexes
 -- ----------------------------------------------------------------
-CREATE INDEX IDX_CUSTOMER_EMAIL    ON CUSTOMER(EMAIL);
 CREATE INDEX IDX_CUSTOMER_STATUS   ON CUSTOMER(STATUS);
 CREATE INDEX IDX_ORDERS_CUSTOMER   ON ORDERS(CUSTOMER_ID);
 CREATE INDEX IDX_ORDERS_DATE       ON ORDERS(ORDER_DATE);

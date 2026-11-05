@@ -36,7 +36,7 @@ function App() {
               <div>
                 <h1>Agentic AI Oracle Migration Platform</h1>
                 <p className="header-subtitle">
-                  Intelligent Two-Step Database Migration: 19c → 19c PDB → 23c PDB
+                  AI-Powered Direct Migration: Oracle 18c XE Source → Oracle XE 21c Target
                 </p>
               </div>
             </div>

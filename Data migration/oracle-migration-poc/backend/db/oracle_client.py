@@ -57,6 +57,18 @@ class OracleClient:
                 schema=schema_name,
             )
             rows = cur.fetchall()
+
+            # USER_SEGMENTS needs no DBA privilege, but only covers the connected user's schema
+            sizes: dict = {}
+            if schema_name == (self.config.username or "").upper():
+                try:
+                    cur.execute(
+                        "SELECT SEGMENT_NAME, SUM(BYTES) / 1048576 FROM USER_SEGMENTS "
+                        "WHERE SEGMENT_TYPE LIKE 'TABLE%' GROUP BY SEGMENT_NAME"
+                    )
+                    sizes = {name: float(mb) for name, mb in cur.fetchall()}
+                except Exception:
+                    pass
             cur.close()
 
             # Live COUNT(*) per table using owner-qualified name
@@ -73,7 +85,7 @@ class OracleClient:
                     table_name=tname,
                     schema_name=owner,
                     row_count=live_count,
-                    size_mb=0.0,   # segment size not available without DBA_SEGMENTS
+                    size_mb=round(sizes.get(tname, 0.0), 2),
                     selected=True,
                 ))
 

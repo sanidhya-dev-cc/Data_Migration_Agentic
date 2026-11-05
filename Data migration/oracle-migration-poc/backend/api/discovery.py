@@ -55,15 +55,15 @@ async def list_databases():
         databases = [
             {
                 "db_id": "source_oracle",
-                "db_type": DatabaseType.ORACLE_19C_STANDALONE.value,
+                "db_type": DatabaseType.ORACLE_XE_21C_SOURCE.value,
                 "host": src.host,
                 "port": src.port,
                 "service_name": src.service,
-                "description": "Oracle XE 21c – Source database (pre-populated with test data)",
+                "description": "Oracle 18c XE – Source database (pre-populated with test data)",
             },
             {
                 "db_id": "target_oracle",
-                "db_type": DatabaseType.ORACLE_23C_CDB_PDB.value,
+                "db_type": DatabaseType.ORACLE_XE_21C_TARGET.value,
                 "host": tgt.host,
                 "port": tgt.port,
                 "service_name": tgt.service,

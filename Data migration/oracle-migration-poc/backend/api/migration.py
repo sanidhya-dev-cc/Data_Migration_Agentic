@@ -24,11 +24,16 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
+
+# Dedicated thread pool for orchestrator — keeps LLM calls isolated
+# from the event loop's default thread pool
+_ORCHESTRATOR_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="orchestrator")
 
 from models.migration import (
     ApprovalRequest,
@@ -133,7 +138,7 @@ def _progress_from_state(migration_id: str, agent_state: Optional[Dict]) -> Migr
     return MigrationProgress(
         migration_id=migration_id,
         status=status,
-        current_step=MigrationStep.STEP_1_NON_CDB_TO_PDB,
+        current_step=MigrationStep.STEP_1_DIRECT_MIGRATION,
         current_table=current_table,
         tables_completed=tables_completed,
         tables_total=tables_total,
@@ -168,7 +173,7 @@ def _plan_from_state(migration_id: str, agent_state: Optional[Dict]) -> Optional
         return MigrationPlan(
             plan_id=plan_raw["plan_id"],
             migration_id=migration_id,
-            step=MigrationStep.STEP_1_NON_CDB_TO_PDB,
+            step=MigrationStep.STEP_1_DIRECT_MIGRATION,
             execution_order=plan_raw.get("execution_order", []),
             dependencies=deps,
             estimated_duration_minutes=plan_raw.get("estimated_duration_minutes", 5),
@@ -200,30 +205,41 @@ def _sync_status(migration_id: str, agent_state: Dict) -> None:
 async def _bg_run_analysis(migration_id: str, request_dict: Dict) -> None:
     """Background: run Graph 1 via orchestrator and sync state."""
     from agents import MigrationOrchestrator
+    import functools
 
     logger.info(f"[{migration_id}] Background analysis started")
     try:
         orchestrator = MigrationOrchestrator()
-        result_state = await asyncio.to_thread(
-            orchestrator.run_analysis, migration_id, request_dict
+        loop = asyncio.get_event_loop()
+        fn = functools.partial(orchestrator.run_analysis, migration_id, request_dict)
+        result_state = await asyncio.wait_for(
+            loop.run_in_executor(_ORCHESTRATOR_POOL, fn),
+            timeout=300,
         )
         _sync_status(migration_id, result_state)
         logger.info(f"[{migration_id}] Background analysis done — status: {result_state['status']}")
+    except asyncio.TimeoutError:
+        logger.error(f"[{migration_id}] Analysis timed out after 300s")
+        m = migrations.get(migration_id)
+        if m:
+            m["status"] = "failed"
+            m.setdefault("agent_state", {})["status"] = "failed"
+            m["agent_state"]["error"] = "Analysis timed out after 5 minutes"
+            m["agent_state"].setdefault("agent_logs", []).append({
+                "timestamp": _utcnow(), "agent_name": "Orchestrator",
+                "action": "timeout", "reasoning": "Analysis timed out after 5 minutes", "metadata": {},
+            })
     except Exception as e:
         logger.error(f"[{migration_id}] Background analysis exception: {e}")
         m = migrations.get(migration_id)
         if m:
             m["status"] = "failed"
-            if m.get("agent_state") is None:
-                m["agent_state"] = {}
+            m.setdefault("agent_state", {})
             m["agent_state"]["status"] = "failed"
             m["agent_state"]["error"] = str(e)
             m["agent_state"].setdefault("agent_logs", []).append({
-                "timestamp": _utcnow(),
-                "agent_name": "Orchestrator",
-                "action": "analysis_exception",
-                "reasoning": str(e),
-                "metadata": {},
+                "timestamp": _utcnow(), "agent_name": "Orchestrator",
+                "action": "analysis_exception", "reasoning": str(e), "metadata": {},
             })
 
 
@@ -244,22 +260,32 @@ async def _bg_run_execution(migration_id: str) -> None:
     logger.info(f"[{migration_id}] Background execution started")
     try:
         orchestrator = MigrationOrchestrator()
-        result_state = await asyncio.to_thread(
-            orchestrator.run_execution, saved_state
+        import functools
+        loop = asyncio.get_event_loop()
+        fn = functools.partial(orchestrator.run_execution, saved_state)
+        result_state = await asyncio.wait_for(
+            loop.run_in_executor(_ORCHESTRATOR_POOL, fn),
+            timeout=600,
         )
         _sync_status(migration_id, result_state)
         logger.info(f"[{migration_id}] Background execution done — status: {result_state['status']}")
+    except asyncio.TimeoutError:
+        logger.error(f"[{migration_id}] Execution timed out after 600s")
+        m["status"] = "failed"
+        m.setdefault("agent_state", {})["status"] = "failed"
+        m["agent_state"]["error"] = "Execution timed out after 10 minutes"
+        m["agent_state"].setdefault("agent_logs", []).append({
+            "timestamp": _utcnow(), "agent_name": "Orchestrator",
+            "action": "timeout", "reasoning": "Execution timed out after 10 minutes", "metadata": {},
+        })
     except Exception as e:
         logger.error(f"[{migration_id}] Background execution exception: {e}")
         if m.get("agent_state"):
             m["agent_state"]["status"] = "failed"
             m["agent_state"]["error"] = str(e)
             m["agent_state"].setdefault("agent_logs", []).append({
-                "timestamp": _utcnow(),
-                "agent_name": "Orchestrator",
-                "action": "execution_exception",
-                "reasoning": str(e),
-                "metadata": {},
+                "timestamp": _utcnow(), "agent_name": "Orchestrator",
+                "action": "execution_exception", "reasoning": str(e), "metadata": {},
             })
         m["status"] = "failed"
 
@@ -271,17 +297,15 @@ async def _bg_run_execution(migration_id: str) -> None:
 @router.post("/start", response_model=MigrationResponse)
 async def start_migration(
     request: MigrationRequest,
-    background_tasks: BackgroundTasks,
 ) -> MigrationResponse:
     """
     Start a new migration.
-    Returns immediately; Graph 1 (analysis) runs in the background.
+    Returns immediately; Graph 1 (analysis) runs as an asyncio task.
     Poll /status to track progress.
     """
     migration_id = str(uuid.uuid4())
     logger.info(f"Starting migration: {migration_id}")
 
-    # Seed the migrations store
     migrations[migration_id] = {
         "migration_id": migration_id,
         "request": request.dict(),
@@ -290,8 +314,8 @@ async def start_migration(
         "created_at": _utcnow(),
     }
 
-    # Kick off Graph 1 in the background
-    background_tasks.add_task(_bg_run_analysis, migration_id, request.dict())
+    # Use asyncio.create_task — more reliable than BackgroundTasks on Windows
+    asyncio.create_task(_bg_run_analysis(migration_id, request.dict()))
 
     initial_progress = _progress_from_state(migration_id, None)
     return MigrationResponse(
@@ -342,7 +366,6 @@ async def get_migration_status(migration_id: str) -> MigrationResponse:
 async def approve_migration(
     migration_id: str,
     approval: ApprovalRequest,
-    background_tasks: BackgroundTasks,
 ) -> MigrationResponse:
     """
     Approve or reject a migration that is awaiting approval.
@@ -394,8 +417,8 @@ async def approve_migration(
             "metadata": {"approver": approval.approver},
         })
 
-    # Kick off Graph 2 in the background
-    background_tasks.add_task(_bg_run_execution, migration_id)
+    # Use asyncio.create_task — more reliable than BackgroundTasks on Windows
+    asyncio.create_task(_bg_run_execution(migration_id))
 
     progress = _progress_from_state(migration_id, m.get("agent_state"))
     return MigrationResponse(

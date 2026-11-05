@@ -16,17 +16,17 @@ interface DatabaseSelectorProps {
 const KNOWN_DATABASES: DatabaseConfig[] = [
   {
     db_id: 'source_oracle',
-    db_type: DatabaseType.ORACLE_19C_STANDALONE,
+    db_type: DatabaseType.ORACLE_XE_21C_SOURCE,
     host: 'localhost',
     port: 1521,
     service_name: 'XEPDB1',
     username: 'migration_user',
     password: 'MigrationPwd123',
-    description: 'Oracle XE 21c – Source DB (16 500 rows)',
+    description: 'Oracle 18c XE – Source DB (16 500 rows)',
   },
   {
     db_id: 'target_oracle',
-    db_type: DatabaseType.ORACLE_23C_CDB_PDB,
+    db_type: DatabaseType.ORACLE_XE_21C_TARGET,
     host: 'localhost',
     port: 1522,
     service_name: 'XEPDB1',
@@ -123,7 +123,7 @@ const DatabaseSelector: React.FC<DatabaseSelectorProps> = ({ onSelect }) => {
             <div className="step-number">1</div>
             <div className="step-content">
               <h3>Source Database</h3>
-              <p>Oracle 21c XE — pre-loaded with 16 500 rows</p>
+              <p>Oracle 18c XE — pre-loaded with 16 500 rows</p>
               <select
                 className="db-select"
                 value={selectedSource}
@@ -156,7 +156,7 @@ const DatabaseSelector: React.FC<DatabaseSelectorProps> = ({ onSelect }) => {
             <div className="step-number">2</div>
             <div className="step-content">
               <h3>Target Database</h3>
-              <p>Oracle 21c XE — empty, ready to receive data</p>
+              <p>Oracle XE 21c — empty, ready to receive data</p>
               <select
                 className="db-select"
                 value={selectedTarget}

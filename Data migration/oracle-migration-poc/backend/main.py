@@ -16,7 +16,7 @@ import os
 load_dotenv()
 
 # Import routers
-from api import migration, schema, validation, discovery
+from api import migration, schema, validation, discovery, data
 
 # Configure logging
 logging.basicConfig(
@@ -87,6 +87,7 @@ app.include_router(migration.router, prefix="/api/migration", tags=["Migration"]
 app.include_router(schema.router, prefix="/api/schema", tags=["Schema"])
 app.include_router(validation.router, prefix="/api/validation", tags=["Validation"])
 app.include_router(discovery.router, prefix="/api/discovery", tags=["Discovery"])
+app.include_router(data.router, prefix="/api/data", tags=["Data Verification"])
 
 
 # Global exception handler

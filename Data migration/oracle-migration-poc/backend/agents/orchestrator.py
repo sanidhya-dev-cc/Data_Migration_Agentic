@@ -12,7 +12,8 @@ Two-graph design so the human-approval gate works with the REST API:
       migration_executor → validator → reconciliation → complete / error
       Picks up saved state, runs MigrationEngine, validates, returns.
 
-LLM provider : Anthropic Claude (direct API via langchain-anthropic).
+LLM provider : OpenRouter (ChatOpenAI with custom base_url).
+SSL note      : Corporate proxy requires verify=False on the httpx client.
 Data source   : Real Oracle source/target containers via OracleClient +
                 MigrationEngine — no mock data.
 """
@@ -24,10 +25,11 @@ import traceback
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TypedDict
 
+import httpx
 import structlog
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
 load_dotenv()
@@ -35,15 +37,27 @@ load_dotenv()
 logger = structlog.get_logger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LLM initialisation  (Anthropic Claude — direct API)
+# LLM initialisation  (OpenRouter, SSL-verify disabled for corporate proxy)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_llm() -> ChatAnthropic:
-    return ChatAnthropic(
-        api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-        model=os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5"),
+def _build_llm() -> ChatOpenAI:
+    return ChatOpenAI(
+        base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        api_key=os.getenv("OPENROUTER_API_KEY", ""),
+        model=os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
         temperature=0.3,
         max_tokens=1500,
+        default_headers={
+            "HTTP-Referer": "https://oracle-migration-poc",
+            "X-OpenRouter-Title": "Oracle Migration POC",
+        },
+        # Fresh client per call — avoids connection pool conflicts with asyncio on Windows.
+        # verify=False bypasses corporate proxy SSL certificate issue.
+        # Explicit timeouts prevent silent hangs.
+        http_client=httpx.Client(
+            verify=False,
+            timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
+        ),
     )
 
 
@@ -82,7 +96,7 @@ def _log_entry(agent: str, action: str, reasoning: str, meta: Dict = None) -> Di
     }
 
 
-def _llm_call(llm: ChatAnthropic, system: str, user: str, fallback: str) -> str:
+def _llm_call(llm: ChatOpenAI, system: str, user: str, fallback: str) -> str:
     """Call LLM and return content; return fallback string on any error."""
     try:
         response = llm.invoke([
@@ -113,8 +127,11 @@ def _node_intent_analyzer(state: MigrationState) -> MigrationState:
     )
     user = (
         f"Migration: {req.get('migration_name')}\n"
-        f"Source DB type: {req.get('source_db', {}).get('db_type')}\n"
-        f"Target DB type: {req.get('target_db', {}).get('db_type')}\n"
+        f"Source DB: Oracle 18c XE (port {req.get('source_db', {}).get('port')}, "
+        f"service {req.get('source_db', {}).get('service_name')})\n"
+        f"Target DB: Oracle XE 21c (port {req.get('target_db', {}).get('port')}, "
+        f"service {req.get('target_db', {}).get('service_name')})\n"
+        f"Migration type: Upgrade migration — Oracle 18c XE source → Oracle XE 21c target\n"
         f"Tables requested: {len(req.get('tables', []))}\n"
         f"Business priority: {req.get('business_priority')}\n"
         f"Max downtime: {req.get('max_downtime_minutes')} minutes\n"
@@ -260,10 +277,13 @@ def _node_migration_planner(state: MigrationState) -> MigrationState:
         "Format your response clearly with numbered sections."
     )
     user = (
-        f"Source: {req.get('source_db', {}).get('db_type')} "
-        f"({req.get('source_db', {}).get('host')}:{req.get('source_db', {}).get('port')})\n"
-        f"Target: {req.get('target_db', {}).get('db_type')} "
-        f"({req.get('target_db', {}).get('host')}:{req.get('target_db', {}).get('port')})\n"
+        f"Source: Oracle 18c XE "
+        f"({req.get('source_db', {}).get('host')}:{req.get('source_db', {}).get('port')}/"
+        f"{req.get('source_db', {}).get('service_name')})\n"
+        f"Target: Oracle XE 21c "
+        f"({req.get('target_db', {}).get('host')}:{req.get('target_db', {}).get('port')}/"
+        f"{req.get('target_db', {}).get('service_name')})\n"
+        f"Migration type: Upgrade migration — Oracle 18c XE source → Oracle XE 21c target\n"
         f"Tables: {schema.get('total_tables')} tables, "
         f"{schema.get('total_rows', 0):,} total rows\n"
         f"Execution order: {' → '.join(execution_order)}\n"
@@ -283,7 +303,7 @@ def _node_migration_planner(state: MigrationState) -> MigrationState:
     state["migration_plan"] = {
         "plan_id": f"PLAN-{state['migration_id'][:8]}",
         "migration_id": state["migration_id"],
-        "step": "step_1_non_cdb_to_pdb",
+        "step": "step_1_direct_migration",
         "execution_order": execution_order,
         "dependencies": schema.get("dependencies", []),
         "estimated_duration_minutes": max(5, schema.get("total_rows", 0) // 5000),

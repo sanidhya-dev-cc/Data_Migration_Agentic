@@ -10,8 +10,8 @@ from datetime import datetime
 
 class MigrationStep(str, Enum):
     """Migration step types"""
-    STEP_1_NON_CDB_TO_PDB = "step_1_non_cdb_to_pdb"
-    STEP_2_PDB_19C_TO_23C = "step_2_pdb_19c_to_23c"
+    STEP_1_DIRECT_MIGRATION = "step_1_direct_migration"
+    STEP_2_VALIDATE = "step_2_validate"
 
 
 class MigrationStatus(str, Enum):
@@ -39,9 +39,8 @@ class MigrationPriority(str, Enum):
 
 class DatabaseType(str, Enum):
     """Database type"""
-    ORACLE_19C_STANDALONE = "oracle_19c_standalone"
-    ORACLE_19C_CDB_PDB = "oracle_19c_cdb_pdb"
-    ORACLE_23C_CDB_PDB = "oracle_23c_cdb_pdb"
+    ORACLE_XE_21C_SOURCE = "oracle_xe_21c_source"
+    ORACLE_XE_21C_TARGET = "oracle_xe_21c_target"
 
 
 class DatabaseConfig(BaseModel):
@@ -72,7 +71,7 @@ class MigrationRequest(BaseModel):
     intermediate_db: Optional[DatabaseConfig] = None
     target_db: DatabaseConfig
     tables: List[TableInfo]
-    migration_mode: str = Field(default="two_step", description="Migration mode: two_step or direct")
+    migration_mode: str = Field(default="direct", description="Migration mode: direct")
     business_priority: MigrationPriority = MigrationPriority.MEDIUM
     max_downtime_minutes: Optional[int] = Field(default=60, description="Maximum acceptable downtime")
     user_notes: Optional[str] = None
