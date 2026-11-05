@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { DatabaseConfig, DatabaseType } from '../types';
 import { discoveryApi } from '../services/api';
+import WizardHeader from './ui/WizardHeader';
+import {
+  IconDatabase,
+  IconShieldCheck,
+  IconArrowRight,
+  IconCheck,
+  IconChevronRight,
+  IconX,
+} from './ui/Icons';
 import './DatabaseSelector.css';
 
 interface DatabaseSelectorProps {
@@ -43,6 +52,7 @@ const DatabaseSelector: React.FC<DatabaseSelectorProps> = ({ onSelect }) => {
   const [connectionStatus, setConnectionStatus] = useState<Record<string, 'ok' | 'fail' | 'idle'>>({});
   const [selectedSource, setSelectedSource] = useState<string>('source_oracle');
   const [selectedTarget, setSelectedTarget] = useState<string>('target_oracle');
+  const [editing, setEditing] = useState<'source' | 'target' | null>(null);
 
   useEffect(() => {
     loadDatabases();
@@ -87,134 +97,178 @@ const DatabaseSelector: React.FC<DatabaseSelectorProps> = ({ onSelect }) => {
 
   const canContinue = selectedSource && selectedTarget && selectedSource !== selectedTarget;
 
+  const tested = Object.keys(connectionStatus).length > 0;
+  const allOk = tested && databases.every((db) => connectionStatus[db.db_id] === 'ok');
+
+  /** Endpoint card for one side of the migration. */
+  const renderEndpoint = (
+    role: 'source' | 'target',
+    label: string,
+    selectedId: string,
+    setSelectedId: (id: string) => void
+  ) => {
+    const db = databases.find((d) => d.db_id === selectedId);
+    const state = db ? connectionStatus[db.db_id] : undefined;
+
+    return (
+      <div className="endpoint">
+        <div className="endpoint-head">
+          <span className="tile tile-md tile-blue">
+            <IconDatabase size={18} />
+          </span>
+          <div className="endpoint-id">
+            <span className="eyebrow">{label}</span>
+            <div className="endpoint-name">{db?.description || db?.db_id || '—'}</div>
+          </div>
+
+          {state === 'ok' && (
+            <span className="conn-state ok">
+              <span className="dot dot-green" />
+              Verified
+            </span>
+          )}
+          {state === 'fail' && (
+            <span className="conn-state fail">
+              <IconX size={13} />
+              Failed
+            </span>
+          )}
+        </div>
+
+        <div className="endpoint-fields">
+          <div className="field">
+            <label className="field-label">Host &amp; service</label>
+            <div className="field-box mono">
+              {db ? `${db.host}:${db.port}/${db.service_name}` : '—'}
+            </div>
+          </div>
+          <div className="field">
+            <label className="field-label">Schema</label>
+            <div className="field-box">{(db?.username || '').toUpperCase() || '—'}</div>
+          </div>
+        </div>
+
+        {editing === role ? (
+          <div className="endpoint-edit">
+            <select
+              className="db-select"
+              value={selectedId}
+              onChange={(e) => setSelectedId(e.target.value)}
+            >
+              <option value="">Select database...</option>
+              {databases.map((d) => (
+                <option key={d.db_id} value={d.db_id}>
+                  {d.description || d.db_id}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="btn-link" onClick={() => setEditing(null)}>
+              Done
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="btn-link endpoint-edit-link"
+            onClick={() => setEditing(role)}
+          >
+            Edit connection
+            <IconChevronRight size={14} />
+          </button>
+        )}
+      </div>
+    );
+  };
+
   if (loading) {
     return (
-      <div className="card">
-        <div className="loading-container">
-          <div className="spinner"></div>
-          <p>Loading available databases...</p>
+      <>
+        <WizardHeader
+          step={1}
+          title="Configure your migration"
+          subtitle="Connect source and target environments. No data moves until you review and approve the generated plan."
+        />
+        <div className="card">
+          <div className="loading-block">
+            <div className="spinner" />
+            <p>Loading available databases...</p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="database-selector">
+    <>
+      <WizardHeader
+        step={1}
+        title="Configure your migration"
+        subtitle="Connect source and target environments. No data moves until you review and approve the generated plan."
+      />
+
       <div className="card">
-        <div className="card-header">
+        <div className="card-head bordered">
           <div>
-            <h2 className="card-title">Select Migration Databases</h2>
+            <h2 className="card-title">Database endpoints</h2>
             <p className="card-subtitle">
-              Configure source and target databases, then start the AI-powered migration
+              Confirm the connection details for both environments.
             </p>
           </div>
+
           <button
-            className="btn btn-secondary"
+            type="button"
+            className={`pill ${allOk ? 'pill-green' : 'pill-grey'} verify-pill`}
             onClick={testConnections}
             disabled={testing}
           >
-            {testing ? 'Testing...' : 'Test Connections'}
+            {allOk ? <IconCheck size={14} /> : <IconShieldCheck size={14} />}
+            {testing ? 'Verifying…' : allOk ? 'Connections verified' : 'Verify connections'}
           </button>
         </div>
 
-        <div className="migration-flow">
-          {/* Source */}
-          <div className="flow-step">
-            <div className="step-number">1</div>
-            <div className="step-content">
-              <h3>Source Database</h3>
-              <p>Oracle 18c XE — pre-loaded with 16 500 rows</p>
-              <select
-                className="db-select"
-                value={selectedSource}
-                onChange={(e) => setSelectedSource(e.target.value)}
-              >
-                <option value="">Select database...</option>
-                {databases.map((db) => (
-                  <option key={db.db_id} value={db.db_id}>
-                    {db.description || db.db_id}
-                  </option>
-                ))}
-              </select>
-              {selectedSource && (() => {
-                const db = databases.find((d) => d.db_id === selectedSource);
-                return db ? (
-                  <div className="db-info">
-                    <span>{db.host}:{db.port}/{db.service_name}</span>
-                    {connectionStatus[db.db_id] === 'ok' && <span className="conn-ok"> ✓ Connected</span>}
-                    {connectionStatus[db.db_id] === 'fail' && <span className="conn-fail"> ✗ Failed</span>}
-                  </div>
-                ) : null;
-              })()}
+        <div className="card-body">
+          <div className="endpoint-row">
+            {renderEndpoint('source', 'Source database', selectedSource, setSelectedSource)}
+
+            <div className="transfer">
+              <span className="transfer-label">Secure transfer</span>
+              <IconArrowRight size={18} />
             </div>
+
+            {renderEndpoint('target', 'Target database', selectedTarget, setSelectedTarget)}
           </div>
 
-          <div className="flow-arrow">→</div>
-
-          {/* Target */}
-          <div className="flow-step">
-            <div className="step-number">2</div>
-            <div className="step-content">
-              <h3>Target Database</h3>
-              <p>Oracle XE 21c — empty, ready to receive data</p>
-              <select
-                className="db-select"
-                value={selectedTarget}
-                onChange={(e) => setSelectedTarget(e.target.value)}
-              >
-                <option value="">Select database...</option>
-                {databases.map((db) => (
-                  <option key={db.db_id} value={db.db_id}>
-                    {db.description || db.db_id}
-                  </option>
-                ))}
-              </select>
-              {selectedTarget && (() => {
-                const db = databases.find((d) => d.db_id === selectedTarget);
-                return db ? (
-                  <div className="db-info">
-                    <span>{db.host}:{db.port}/{db.service_name}</span>
-                    {connectionStatus[db.db_id] === 'ok' && <span className="conn-ok"> ✓ Connected</span>}
-                    {connectionStatus[db.db_id] === 'fail' && <span className="conn-fail"> ✗ Failed</span>}
-                  </div>
-                ) : null;
-              })()}
+          <div className="info-strip endpoint-note">
+            <IconShieldCheck size={18} />
+            <div>
+              <div className="t">Your data remains protected</div>
+              <div className="s">
+                Credentials are encrypted. This step only validates access and reads
+                metadata—no records are copied or changed.
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="migration-info">
-          <h3>What happens when you start</h3>
-          <div className="info-grid">
-            <div className="info-card">
-              <div className="info-icon step1">1</div>
-              <h4>AI Analysis</h4>
-              <p>Agent reads source schema, resolves FK dependencies, and builds migration order</p>
-            </div>
-            <div className="info-card">
-              <div className="info-icon step2">2</div>
-              <h4>Human Approval</h4>
-              <p>Review the generated plan before any data is moved</p>
-            </div>
-            <div className="info-card">
-              <div className="info-icon" style={{ background: '#10b981' }}>3</div>
-              <h4>Execute & Validate</h4>
-              <p>Real data copy via oracledb thin driver with row-count validation</p>
+        <div className="card-foot">
+          <div className="foot-text">
+            <div className="t">Ready to discover your source?</div>
+            <div className="s">
+              The agent will inventory schemas, tables, dependencies, and configuration.
             </div>
           </div>
-        </div>
-
-        <div className="selector-actions">
           <button
+            type="button"
             className="btn btn-primary btn-lg"
             onClick={handleContinue}
             disabled={!canContinue}
           >
-            Continue to Migration Dashboard →
+            Discover database
+            <IconArrowRight size={16} />
           </button>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 

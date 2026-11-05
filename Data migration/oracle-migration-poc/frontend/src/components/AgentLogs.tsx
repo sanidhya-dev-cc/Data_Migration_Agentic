@@ -1,10 +1,17 @@
 import React, { useState } from 'react';
 import { AgentLog } from '../types';
+import { IconCheck, IconChevronDown } from './ui/Icons';
 import './AgentLogs.css';
 
 interface AgentLogsProps {
   logs: AgentLog[];
 }
+
+/** Formats an agent name such as "intent_analyzer" as "Intent Analyzer". */
+const formatAgent = (name: string): string =>
+  name
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
 const AgentLogs: React.FC<AgentLogsProps> = ({ logs }) => {
   const [expanded, setExpanded] = useState(true);
@@ -14,49 +21,57 @@ const AgentLogs: React.FC<AgentLogsProps> = ({ logs }) => {
   }
 
   return (
-    <div className="card agent-logs-card">
-      <div className="card-header clickable" onClick={() => setExpanded(!expanded)}>
+    <div className="card">
+      <div className="card-head bordered clickable" onClick={() => setExpanded(!expanded)}>
         <div>
-          <h2 className="card-title">Agent Reasoning & Logs</h2>
+          <h2 className="card-title">Agent activity &amp; audit trail</h2>
           <p className="card-subtitle">
-            Real-time insights into AI agent decision-making
+            A concise record of agent decisions and execution events.
           </p>
         </div>
-        <button className="expand-btn">
-          {expanded ? '▼' : '▶'}
-        </button>
+        <div className="row-center">
+          <span className="badge badge-grey">{logs.length} events</span>
+          <span className={`expand-chevron ${expanded ? 'is-open' : ''}`}>
+            <IconChevronDown size={16} />
+          </span>
+        </div>
       </div>
 
       {expanded && (
-        <div className="logs-container">
-          <div className="logs-timeline">
-            {logs.map((log, index) => (
-              <div key={index} className="log-entry">
-                <div className="log-marker"></div>
-                <div className="log-content">
-                  <div className="log-header">
-                    <div className="log-agent-name">
-                      <span className="agent-icon">🤖</span>
-                      {log.agent_name}
-                    </div>
-                    <div className="log-timestamp">
-                      {new Date(log.timestamp).toLocaleTimeString()}
-                    </div>
-                  </div>
-                  <div className="log-action">{log.action}</div>
+        <div className="card-body flush">
+          {logs.map((log, index) => {
+            const isLast = index === logs.length - 1;
+            return (
+              <div key={index} className="audit-row">
+                <span className={`numcircle ${isLast ? 'done' : ''}`}>
+                  {isLast ? <IconCheck size={12} /> : index + 1}
+                </span>
+
+                <span className="audit-time mono">
+                  {new Date(log.timestamp).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })}
+                </span>
+
+                <span className="audit-agent">{formatAgent(log.agent_name)}</span>
+
+                <span className="audit-body">
+                  <span className="audit-action">{log.action}</span>
                   {log.reasoning && (
-                    <div className="log-reasoning">{log.reasoning}</div>
+                    <span className="audit-reasoning">{log.reasoning}</span>
                   )}
                   {log.metadata && Object.keys(log.metadata).length > 0 && (
-                    <details className="log-metadata">
-                      <summary>View Metadata</summary>
+                    <details className="audit-meta">
+                      <summary>View metadata</summary>
                       <pre>{JSON.stringify(log.metadata, null, 2)}</pre>
                     </details>
                   )}
-                </div>
+                </span>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       )}
     </div>

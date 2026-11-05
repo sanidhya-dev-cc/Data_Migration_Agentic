@@ -1,0 +1,315 @@
+/* ------------------------------------------------------------ Last updated */
+
+.updated-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 18px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xs);
+  flex-shrink: 0;
+}
+
+.updated-value {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-900);
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------- KPIs */
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.kpi {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.kpi.is-highlight {
+  background: #fffdf6;
+  border-color: #f3e3c3;
+}
+
+.kpi-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.kpi-value {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-900);
+  margin: 10px 0 10px;
+  line-height: 1;
+}
+
+.kpi-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+}
+
+.kpi-caption {
+  font-size: 12.5px;
+  color: var(--text-500);
+}
+
+.kpi-flag {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kpi-flag.grey {
+  color: var(--text-500);
+}
+
+.kpi-flag.green {
+  color: var(--green-700);
+}
+
+.kpi-flag.amber {
+  color: var(--amber-700);
+}
+
+/* --------------------------------------------------------- Attention banner */
+
+.attention {
+  margin-bottom: 20px;
+}
+
+.attention-action {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-shrink: 0;
+}
+
+.attention-stage {
+  text-align: left;
+}
+
+.stage-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  margin-top: 5px;
+}
+
+.stage-eta {
+  font-size: 12.5px;
+  color: #9fb4d4;
+  margin-top: 2px;
+}
+
+/* --------------------------------------------------------------- Split rows */
+
+.exec-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.95fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.exec-split.lower {
+  margin-top: 20px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+}
+
+.exec-split .card + .card {
+  margin-top: 0;
+}
+
+/* ------------------------------------------------------------- Stage list */
+
+.stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.stage-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.stage-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.stage-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-900);
+}
+
+.stage-sub {
+  font-size: 12.5px;
+  color: var(--text-500);
+  margin-top: 1px;
+}
+
+.stage-right {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-500);
+  flex-shrink: 0;
+}
+
+.stage-right.amber {
+  color: var(--amber-700);
+}
+
+/* --------------------------------------------------------- Capability rows */
+
+.cap-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 26px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cap-row:last-child {
+  border-bottom: none;
+}
+
+.cap-row:hover {
+  background: var(--bg-subtle);
+}
+
+.cap-row > svg {
+  color: var(--text-300);
+  flex-shrink: 0;
+}
+
+.cap-text {
+  display: flex;
+  flex-direction: column;
+  width: 170px;
+  flex-shrink: 0;
+}
+
+.cap-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-900);
+}
+
+.cap-sub {
+  font-size: 12px;
+  color: var(--text-400);
+  margin-top: 1px;
+}
+
+.cap-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cap-notstarted {
+  font-size: 12.5px;
+  color: var(--text-400);
+  white-space: nowrap;
+  min-width: 70px;
+}
+
+/* ----------------------------------------------------------- Activity list */
+
+.act-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.act-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.act-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.act-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-900);
+}
+
+.act-sub {
+  font-size: 12.5px;
+  color: var(--text-500);
+  margin-top: 2px;
+}
+
+.act-time {
+  font-size: 12px;
+  color: var(--text-400);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------- Responsive */
+
+@media (max-width: 1180px) {
+  .kpi-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .exec-split,
+  .exec-split.lower {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .kpi-row {
+    grid-template-columns: 1fr;
+  }
+
+  .attention-action {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .cap-text {
+    width: auto;
+  }
+}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   DatabaseConfig,
+  DependencyInfo,
   MigrationResponse,
   MigrationStatus,
   TableInfo,
@@ -10,6 +11,8 @@ import TableSelector from '../components/TableSelector';
 import MigrationProgress from '../components/MigrationProgress';
 import MigrationPlanView from '../components/MigrationPlanView';
 import AgentLogs from '../components/AgentLogs';
+import WizardHeader from '../components/ui/WizardHeader';
+import { IconArrowRight, IconAlert } from '../components/ui/Icons';
 import './MigrationDashboard.css';
 
 interface MigrationDashboardProps {
@@ -26,6 +29,7 @@ const MigrationDashboard: React.FC<MigrationDashboardProps> = ({
   onBack,
 }) => {
   const [tables, setTables] = useState<TableInfo[]>([]);
+  const [dependencies, setDependencies] = useState<DependencyInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [migrationStarted, setMigrationStarted] = useState(false);
@@ -36,6 +40,8 @@ const MigrationDashboard: React.FC<MigrationDashboardProps> = ({
     if (databases.source) {
       loadTables();
     }
+    // Reloads only when the selected source database changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [databases.source]);
 
   useEffect(() => {
@@ -52,6 +58,7 @@ const MigrationDashboard: React.FC<MigrationDashboardProps> = ({
       setLoadError(null);
       const schema = await schemaApi.getSourceSchema(databases.source!.db_id);
       setTables(schema.tables);
+      setDependencies(schema.dependencies || []);
     } catch (error: any) {
       console.error('Failed to load tables:', error);
       setLoadError(error?.response?.data?.detail || error?.message || 'Unknown error');
@@ -166,129 +173,140 @@ const MigrationDashboard: React.FC<MigrationDashboardProps> = ({
     }
   };
 
+  // ------------------------------------------------------------ Wizard state
+  const status = migrationData?.status;
+  const isPlanning =
+    status === MigrationStatus.PENDING ||
+    status === MigrationStatus.ANALYZING ||
+    status === MigrationStatus.PLANNING ||
+    status === MigrationStatus.AWAITING_APPROVAL;
+
+  const step = !migrationStarted ? 2 : isPlanning ? 3 : 4;
+  const isComplete = status === MigrationStatus.COMPLETED;
+
+  const headings: Record<number, { title: string; subtitle: string }> = {
+    2: {
+      title: 'Review discovered objects',
+      subtitle:
+        'Choose the database objects to include. Dependencies are automatically sequenced in the migration plan.',
+    },
+    3: {
+      title: 'Review the migration plan',
+      subtitle:
+        "Review the agent's execution order, risk controls, and validation strategy before granting approval.",
+    },
+    4: {
+      title: isComplete ? 'Migration completed' : 'Migrating your data',
+      subtitle: isComplete
+        ? 'All selected tables were migrated successfully and independently validated against the source.'
+        : 'The agent is transferring your selected tables and validating them against the source.',
+    },
+  };
+
+  const selectedCount = tables.filter((t) => t.selected).length;
+  const selectedRows = tables
+    .filter((t) => t.selected)
+    .reduce((sum, t) => sum + t.row_count, 0);
+
   return (
     <div className="migration-dashboard">
-      {/* Database Overview */}
-      <div className="card db-overview">
-        <div className="card-header">
-          <div>
-            <h2 className="card-title">Database Configuration</h2>
-            <p className="card-subtitle">Two-step migration path overview</p>
-          </div>
-          <button className="btn btn-secondary" onClick={onBack}>
-            ← Back to Selection
-          </button>
-        </div>
-        <div className="db-flow">
-          <div className="db-card source">
-            <div className="db-label">Source</div>
-            <div className="db-name">{databases.source?.db_id}</div>
-            <div className="db-type">{databases.source?.host}:{databases.source?.port}</div>
-          </div>
-          <div className="flow-arrow-lg">→</div>
-          <div className="db-card target">
-            <div className="db-label">Target</div>
-            <div className="db-name">{databases.target?.db_id}</div>
-            <div className="db-type">{databases.target?.host}:{databases.target?.port}</div>
-          </div>
-        </div>
-      </div>
+      <WizardHeader
+        step={step}
+        title={headings[step].title}
+        subtitle={headings[step].subtitle}
+      />
 
-      {/* Main Content Area */}
       {!migrationStarted ? (
         <>
-          {/* Table Selection */}
-          <div className="card">
-            <div className="card-header">
-              <div>
-                <h2 className="card-title">Select Tables to Migrate</h2>
-                <p className="card-subtitle">
-                  Choose which tables to include in the migration
-                </p>
-              </div>
-            </div>
-            {loading ? (
-              <div className="loading-container">
-                <div className="spinner"></div>
+          {loading ? (
+            <div className="card">
+              <div className="loading-block">
+                <div className="spinner" />
                 <p>Loading schema information...</p>
               </div>
-            ) : loadError ? (
-              <div className="loading-container">
+            </div>
+          ) : loadError ? (
+            <div className="card">
+              <div className="loading-block">
+                <span className="tile tile-lg tile-grey">
+                  <IconAlert size={20} />
+                </span>
                 <p>Failed to load source tables: {loadError}</p>
-                <button className="btn btn-secondary" onClick={loadTables}>
+                <button type="button" className="btn btn-secondary" onClick={loadTables}>
                   Retry
                 </button>
               </div>
-            ) : (
-              <TableSelector tables={tables} onTablesChange={setTables} />
-            )}
-          </div>
+            </div>
+          ) : (
+            <TableSelector
+              tables={tables}
+              onTablesChange={setTables}
+              dependencies={dependencies}
+            />
+          )}
 
-          {/* Start Migration Button */}
-          <div className="card">
-            <div className="migration-start">
-              <div className="start-info">
-                <h3>Ready to Start Migration?</h3>
-                <p>
-                  The AI agent will analyze your schema, generate a migration plan, and
-                  present it for your approval before execution.
-                </p>
-                <div className="migration-summary">
-                  <div className="summary-item">
-                    <span className="summary-label">Selected Tables:</span>
-                    <span className="summary-value">
-                      {tables.filter((t) => t.selected).length} / {tables.length}
-                    </span>
+          <div className="card discover-foot">
+            <div className="card-foot">
+              <button type="button" className="btn btn-secondary" onClick={onBack}>
+                Back to configuration
+              </button>
+
+              <div className="discover-next">
+                <div className="foot-text text-right">
+                  <div className="t">
+                    {selectedCount} tables · {selectedRows.toLocaleString()} rows
                   </div>
-                  <div className="summary-item">
-                    <span className="summary-label">Total Size:</span>
-                    <span className="summary-value">
-                      {tables
-                        .filter((t) => t.selected)
-                        .reduce((sum, t) => sum + t.size_mb, 0)
-                        .toFixed(2)}{' '}
-                      MB
-                    </span>
-                  </div>
-                  <div className="summary-item">
-                    <span className="summary-label">Total Rows:</span>
-                    <span className="summary-value">
-                      {tables
-                        .filter((t) => t.selected)
-                        .reduce((sum, t) => sum + t.row_count, 0)
-                        .toLocaleString()}
-                    </span>
+                  <div className="s">
+                    Next, the agent will generate a dependency-aware plan for your
+                    approval.
                   </div>
                 </div>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-lg"
+                  onClick={handleStartMigration}
+                  disabled={selectedCount === 0}
+                >
+                  Generate migration plan
+                  <IconArrowRight size={16} />
+                </button>
               </div>
-              <button
-                className="btn btn-primary btn-lg"
-                onClick={handleStartMigration}
-                disabled={tables.filter((t) => t.selected).length === 0}
-              >
-                Start AI-Powered Migration →
-              </button>
             </div>
           </div>
         </>
       ) : (
         <>
-          {/* Migration Progress */}
-          <MigrationProgress
-            migrationData={migrationData}
-            onCancel={handleCancelMigration}
-          />
-
-          {/* Migration Plan (if available) */}
-          {migrationData?.plan && (
+          {/* Plan review and approval gate */}
+          {migrationData?.plan && isPlanning && (
             <MigrationPlanView
               plan={migrationData.plan}
               status={migrationData.status}
               onApprove={handleApproveMigration}
+              tables={tables}
+              onBackToDiscovery={() => setMigrationStarted(false)}
             />
           )}
 
-          {/* Agent Logs */}
+          {/* Execution progress and final result */}
+          {!isPlanning && (
+            <MigrationProgress
+              migrationData={migrationData}
+              onCancel={handleCancelMigration}
+              tables={tables}
+              onRestart={onBack}
+            />
+          )}
+
+          {/* Status card while the plan is still being produced */}
+          {isPlanning && !migrationData?.plan && (
+            <MigrationProgress
+              migrationData={migrationData}
+              onCancel={handleCancelMigration}
+              tables={tables}
+            />
+          )}
+
+          {/* Agent reasoning and audit trail */}
           {migrationData?.progress && (
             <AgentLogs logs={migrationData.progress.agent_logs} />
           )}

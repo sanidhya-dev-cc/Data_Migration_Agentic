@@ -1,140 +1,46 @@
-.migration-dashboard {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+.migration-dashboard > * + * {
+  margin-top: 20px;
 }
 
-/* Database Overview */
-.db-overview {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+/* The discovery footer is a bare card that only holds the action bar. */
+.discover-foot {
+  padding: 0;
+  overflow: hidden;
 }
 
-.db-flow {
+.discover-foot .card-foot {
+  border-top: none;
+}
+
+.discover-next {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 20px;
-  padding: 20px 0;
+  flex-shrink: 0;
 }
 
-.db-card {
-  flex: 1;
-  padding: 20px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  text-align: center;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+.discover-next .btn {
+  flex-shrink: 0;
 }
 
-.db-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+.migration-dashboard .loading-block .tile {
+  margin-bottom: 4px;
 }
 
-.db-card.source {
-  border-top: 4px solid #f59e0b;
-}
-
-.db-card.intermediate {
-  border-top: 4px solid #3b82f6;
-}
-
-.db-card.target {
-  border-top: 4px solid #10b981;
-}
-
-.db-label {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: #6b7280;
-  margin-bottom: 8px;
-}
-
-.db-name {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-dark);
-  margin-bottom: 8px;
-  font-family: monospace;
-}
-
-.db-type {
-  font-size: 14px;
-  color: #6b7280;
-}
-
-.flow-arrow-lg {
-  font-size: 36px;
-  font-weight: bold;
-  color: var(--primary-color);
-}
-
-/* Migration Start Section */
-.migration-start {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 24px;
-  padding: 32px;
-  text-align: center;
-}
-
-.start-info h3 {
-  font-size: 22px;
-  color: var(--text-dark);
-  margin-bottom: 12px;
-}
-
-.start-info p {
-  font-size: 16px;
-  color: #6b7280;
-  max-width: 600px;
-  line-height: 1.6;
-  margin-bottom: 24px;
-}
-
-.migration-summary {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-  margin-top: 24px;
-  padding: 24px;
-  background: #f9fafb;
-  border-radius: 12px;
-  width: 100%;
-}
-
-.summary-item {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.summary-label {
-  font-size: 14px;
-  color: #6b7280;
-  font-weight: 500;
-}
-
-.summary-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--primary-color);
-}
-
-/* Responsive Design */
-@media (max-width: 1024px) {
-  .db-flow {
+@media (max-width: 760px) {
+  .discover-foot .card-foot {
     flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
   }
 
-  .flow-arrow-lg {
-    transform: rotate(90deg);
+  .discover-next {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
   }
 
-  .migration-summary {
-    grid-template-columns: 1fr;
+  .discover-next .foot-text {
+    text-align: left;
   }
 }

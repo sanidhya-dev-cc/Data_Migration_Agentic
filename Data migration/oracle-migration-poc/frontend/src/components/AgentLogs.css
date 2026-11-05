@@ -1,168 +1,119 @@
-.agent-logs-card {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(37, 99, 235, 0.05) 100%);
-}
-
 .clickable {
   cursor: pointer;
   user-select: none;
 }
 
-.expand-btn {
-  padding: 8px 16px;
-  background: #f3f4f6;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  cursor: pointer;
-  transition: all 0.3s ease;
+.expand-chevron {
+  display: inline-flex;
+  color: var(--text-400);
+  transition: transform 0.18s ease;
 }
 
-.expand-btn:hover {
-  background: #e5e7eb;
+.expand-chevron.is-open {
+  transform: rotate(180deg);
 }
 
-.logs-container {
-  padding: 20px 0;
+/* ---------------------------------------------------------------- Audit rows */
+
+.audit-row {
+  display: grid;
+  grid-template-columns: 22px 72px 150px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  padding: 14px 26px;
+  border-bottom: 1px solid var(--border);
 }
 
-.logs-timeline {
-  position: relative;
-  padding-left: 40px;
+.audit-row:last-child {
+  border-bottom: none;
 }
 
-.logs-timeline::before {
-  content: '';
-  position: absolute;
-  left: 15px;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(180deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+.numcircle.done {
+  background: var(--green-50);
+  color: var(--green-600);
 }
 
-.log-entry {
-  position: relative;
-  margin-bottom: 24px;
-}
-
-.log-marker {
-  position: absolute;
-  left: -33px;
-  top: 8px;
-  width: 12px;
-  height: 12px;
-  background: var(--primary-color);
-  border: 3px solid white;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--primary-color);
-  animation: pulse-marker 2s infinite;
-}
-
-@keyframes pulse-marker {
-  0%, 100% {
-    box-shadow: 0 0 0 2px var(--primary-color);
-  }
-  50% {
-    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.4);
-  }
-}
-
-.log-content {
-  padding: 16px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  border-left: 3px solid var(--primary-color);
-}
-
-.log-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.log-agent-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
-  color: var(--text-dark);
-  font-size: 15px;
-}
-
-.agent-icon {
-  font-size: 18px;
-}
-
-.log-timestamp {
+.audit-time {
   font-size: 12px;
-  color: #6b7280;
-  font-family: monospace;
+  color: var(--text-400);
+  padding-top: 3px;
+  white-space: nowrap;
 }
 
-.log-action {
-  font-size: 14px;
-  color: #4b5563;
+.audit-agent {
+  font-size: 13px;
   font-weight: 600;
-  margin-bottom: 12px;
-  padding: 8px 12px;
-  background: #f9fafb;
-  border-radius: 6px;
+  color: var(--text-900);
+  padding-top: 2px;
 }
 
-.log-reasoning {
-  font-size: 14px;
-  line-height: 1.6;
-  color: #374151;
-  padding: 12px;
-  background: #f0f9ff;
-  border-left: 3px solid #3b82f6;
-  border-radius: 6px;
+.audit-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.audit-action {
+  font-size: 13px;
+  color: var(--text-600);
+}
+
+.audit-reasoning {
+  font-size: 12.5px;
+  color: var(--text-400);
+  margin-top: 4px;
+  line-height: 1.55;
   white-space: pre-wrap;
 }
 
-.log-metadata {
-  margin-top: 12px;
-  padding: 12px;
-  background: #f9fafb;
-  border-radius: 6px;
-  cursor: pointer;
+/* ----------------------------------------------------------------- Metadata */
+
+.audit-meta {
+  margin-top: 8px;
 }
 
-.log-metadata summary {
-  font-size: 13px;
-  font-weight: 600;
-  color: #6b7280;
-  cursor: pointer;
-  user-select: none;
-}
-
-.log-metadata summary:hover {
-  color: var(--primary-color);
-}
-
-.log-metadata pre {
-  margin-top: 12px;
-  padding: 12px;
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+.audit-meta summary {
   font-size: 12px;
-  overflow-x: auto;
-  color: #374151;
+  font-weight: 600;
+  color: var(--blue-600);
+  cursor: pointer;
+  list-style: none;
 }
 
-@media (max-width: 768px) {
-  .logs-timeline {
-    padding-left: 30px;
+.audit-meta summary::-webkit-details-marker {
+  display: none;
+}
+
+.audit-meta summary:hover {
+  color: var(--blue-700);
+}
+
+.audit-meta pre {
+  margin-top: 8px;
+  padding: 12px 14px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  color: var(--text-600);
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .audit-row {
+    grid-template-columns: 22px minmax(0, 1fr);
+    row-gap: 6px;
   }
 
-  .log-marker {
-    left: -28px;
+  .audit-time,
+  .audit-agent {
+    grid-column: 2;
+    padding-top: 0;
   }
 
-  .logs-timeline::before {
-    left: 10px;
+  .audit-body {
+    grid-column: 2;
   }
 }

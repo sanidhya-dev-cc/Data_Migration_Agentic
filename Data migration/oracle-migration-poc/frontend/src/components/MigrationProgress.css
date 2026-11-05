@@ -1,197 +1,167 @@
-.migration-progress-card {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+.result > * + * {
+  margin-top: 20px;
 }
 
-.progress-container {
-  padding: 20px 0;
-}
+/* ------------------------------------------------------------ Result banner */
 
-.status-section {
+.result-banner {
   display: flex;
-  justify-content: center;
-  margin-bottom: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 26px;
+  background: var(--green-50);
+  border: 1px solid var(--green-100);
+  border-radius: var(--radius-lg);
 }
 
-.status-badge-lg {
-  padding: 16px 32px;
-  color: white;
-  border-radius: 12px;
-  font-size: 18px;
-  font-weight: 700;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+.result-banner .row-center {
+  align-items: center;
+  gap: 16px;
+}
+
+.result-mark {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--green-600);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.result-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #14532d;
+}
+
+.result-sub {
+  font-size: 13px;
+  color: #3f6b50;
+  margin-top: 3px;
+}
+
+.result-banner .btn {
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------- Validation */
+
+.result-split .card + .card {
+  margin-top: 0;
+}
+
+.match {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--green-700);
+}
+
+/* -------------------------------------------------------------- Health list */
+
+.health-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.health-row {
+  display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.progress-bar-container {
-  width: 100%;
-  height: 48px;
-  background: #f3f4f6;
-  border-radius: 24px;
-  overflow: hidden;
-  margin-bottom: 32px;
-  position: relative;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+.health-row .status-circle {
+  width: 22px;
+  height: 22px;
 }
 
-.progress-bar-fill {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 20px;
-  transition: width 0.5s ease;
-  border-radius: 24px;
-  position: relative;
-}
-
-.progress-bar-fill::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.3),
-    transparent
-  );
-  animation: shimmer 2s infinite;
-}
-
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
-}
-
-.progress-text {
-  color: white;
-  font-weight: 700;
-  font-size: 16px;
-  z-index: 1;
-  position: relative;
-}
-
-.progress-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.stat-card {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 20px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.stat-icon {
-  font-size: 32px;
-}
-
-.stat-content {
+.health-name {
   flex: 1;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-900);
 }
 
-.stat-label {
+.health-state {
   font-size: 13px;
-  color: #6b7280;
-  margin-bottom: 4px;
-  font-weight: 500;
+  font-weight: 600;
+  color: var(--green-700);
+  flex-shrink: 0;
 }
 
-.stat-value {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-dark);
-  font-family: monospace;
+.result-foot {
+  border-top: none;
+  border-radius: var(--radius-lg);
 }
 
-.error-message,
-.success-message {
-  display: flex;
-  align-items: flex-start;
+/* ------------------------------------------------------------- In progress */
+
+.run-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 13px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.run-bar {
+  margin-bottom: 22px;
+}
+
+.run-bar .bar {
+  height: 8px;
+}
+
+.run-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 16px;
-  padding: 20px;
-  border-radius: 12px;
-  margin-top: 24px;
 }
 
-.error-message {
-  background: #fef2f2;
-  border: 2px solid #fecaca;
-}
-
-.success-message {
-  background: #f0fdf4;
-  border: 2px solid #86efac;
-}
-
-.error-icon,
-.success-icon {
-  font-size: 32px;
-}
-
-.error-content,
-.success-content {
-  flex: 1;
-}
-
-.error-title,
-.success-title {
-  font-size: 16px;
+.run-stats .k {
+  font-size: 10.5px;
   font-weight: 700;
-  margin-bottom: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-400);
 }
 
-.error-title {
-  color: #dc2626;
+.run-stats .v {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-900);
+  margin-top: 6px;
 }
 
-.success-title {
-  color: #15803d;
+.run-error {
+  margin-top: 20px;
+  background: var(--red-50);
+  border-color: var(--red-100);
 }
 
-.error-text,
-.success-text {
-  font-size: 14px;
-  line-height: 1.6;
+.run-error svg {
+  color: var(--red-600);
+  flex-shrink: 0;
 }
 
-.error-text {
-  color: #991b1b;
+.run-error .t {
+  color: #7f1d1d;
 }
 
-.success-text {
-  color: #166534;
-}
-
-@media (max-width: 768px) {
-  .progress-stats {
-    grid-template-columns: 1fr;
-  }
-
-  .progress-bar-container {
-    height: 40px;
-  }
-
-  .progress-text {
-    font-size: 14px;
-  }
-
-  .status-badge-lg {
-    font-size: 16px;
-    padding: 12px 24px;
+@media (max-width: 760px) {
+  .result-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
   }
 }

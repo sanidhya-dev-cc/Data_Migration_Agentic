@@ -1,13 +1,20 @@
 import React from 'react';
-import { TableInfo } from '../types';
+import { TableInfo, DependencyInfo } from '../types';
+import { IconCheck, IconChevronRight } from './ui/Icons';
 import './TableSelector.css';
 
 interface TableSelectorProps {
   tables: TableInfo[];
   onTablesChange: (tables: TableInfo[]) => void;
+  /** Dependency metadata from the schema analysis, used for the dependencies column. */
+  dependencies?: DependencyInfo[];
 }
 
-const TableSelector: React.FC<TableSelectorProps> = ({ tables, onTablesChange }) => {
+const TableSelector: React.FC<TableSelectorProps> = ({
+  tables,
+  onTablesChange,
+  dependencies = [],
+}) => {
   const handleToggleTable = (index: number) => {
     const newTables = [...tables];
     newTables[index].selected = !newTables[index].selected;
@@ -32,61 +39,97 @@ const TableSelector: React.FC<TableSelectorProps> = ({ tables, onTablesChange })
     .filter((t) => t.selected)
     .reduce((sum, t) => sum + t.row_count, 0);
 
+  const schemaName = tables.length > 0 ? tables[0].schema_name : '';
+
+  /** Human-readable dependency count for a table, from the analysed schema. */
+  const dependencyLabel = (tableName: string): string => {
+    const entry = dependencies.find((d) => d.table_name === tableName);
+    const count = entry ? entry.depends_on.length : 0;
+    if (count === 0) return 'None';
+    return count === 1 ? '1 table' : `${count} tables`;
+  };
+
   return (
-    <div className="table-selector">
-      <div className="selector-header">
-        <div className="selection-summary">
-          <span className="summary-badge">
-            {selectedCount} of {tables.length} tables selected
-          </span>
-          <span className="summary-badge">
-            {totalSize.toFixed(2)} MB
-          </span>
-          <span className="summary-badge">
-            {totalRows.toLocaleString()} rows
-          </span>
+    <div className="card">
+      <div className="card-head bordered">
+        <div>
+          <h2 className="card-title">Discovered tables</h2>
+          <p className="card-subtitle">
+            {tables.length} tables found in <strong>{schemaName}</strong>. Select what
+            you want to migrate.
+          </p>
         </div>
-        <div className="selector-actions">
-          <button className="btn btn-secondary btn-sm" onClick={handleSelectAll}>
-            Select All
+        <div className="row-center">
+          <button type="button" className="btn-link" onClick={handleSelectAll}>
+            Select all
           </button>
-          <button className="btn btn-secondary btn-sm" onClick={handleDeselectAll}>
-            Deselect All
+          <span className="link-divider" />
+          <button type="button" className="btn-link" onClick={handleDeselectAll}>
+            Clear
           </button>
         </div>
       </div>
 
-      <div className="tables-grid">
-        {tables.map((table, index) => (
-          <div
-            key={table.table_name}
-            className={`table-card ${table.selected ? 'selected' : ''}`}
-            onClick={() => handleToggleTable(index)}
-          >
-            <div className="table-checkbox">
-              <input
-                type="checkbox"
-                checked={table.selected}
-                onChange={() => handleToggleTable(index)}
-                onClick={(e) => e.stopPropagation()}
-              />
-            </div>
-            <div className="table-info">
-              <div className="table-name">{table.table_name}</div>
-              <div className="table-schema">{table.schema_name}</div>
-              <div className="table-stats">
-                <span className="stat">
-                  <span className="stat-icon">📊</span>
-                  {table.row_count.toLocaleString()} rows
-                </span>
-                <span className="stat">
-                  <span className="stat-icon">💾</span>
-                  {table.size_mb.toFixed(2)} MB
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
+      <div className="select-summary">
+        <div className="summary-facts">
+          <span>
+            <strong>{selectedCount}</strong> of {tables.length} selected
+          </span>
+          <span>
+            <strong>{totalRows.toLocaleString()}</strong> rows
+          </span>
+          <span>
+            <strong>{totalSize.toFixed(2)}</strong> MB
+          </span>
+        </div>
+        <span className="summary-ok">
+          <IconCheck size={14} />
+          Dependencies resolved
+        </span>
+      </div>
+
+      <div className="card-body flush">
+        <table className="data-table object-table">
+          <thead>
+            <tr>
+              <th className="col-check" />
+              <th>Table name</th>
+              <th>Rows</th>
+              <th>Size</th>
+              <th>Dependencies</th>
+              <th className="col-chevron" />
+            </tr>
+          </thead>
+          <tbody>
+            {tables.map((table, index) => (
+              <tr
+                key={table.table_name}
+                className={table.selected ? 'is-selected' : ''}
+                onClick={() => handleToggleTable(index)}
+              >
+                <td className="col-check">
+                  <input
+                    type="checkbox"
+                    className="checkbox"
+                    checked={table.selected}
+                    onChange={() => handleToggleTable(index)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </td>
+                <td>
+                  <div className="cell-strong">{table.table_name}</div>
+                  <div className="cell-sub">{table.schema_name}</div>
+                </td>
+                <td>{table.row_count.toLocaleString()}</td>
+                <td>{table.size_mb.toFixed(2)} MB</td>
+                <td>{dependencyLabel(table.table_name)}</td>
+                <td className="col-chevron">
+                  <IconChevronRight size={15} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
